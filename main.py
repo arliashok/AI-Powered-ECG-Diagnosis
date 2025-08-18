@@ -89,9 +89,9 @@ denoised, meta = denoise_all_leads(x[:, :12], fs, lead_nms)
 print("Pipeline complete — 12 leads denoised.")
 
 # -------------------------------------------------------------------
-# 4.  Quick visual check (first 5 s)
+# 4.  Quick visual check (first 10 s)
 # -------------------------------------------------------------------
-sec  = 5
+sec  = 10
 N    = min(sec * fs, len(x))
 t    = np.arange(N) / fs
 
