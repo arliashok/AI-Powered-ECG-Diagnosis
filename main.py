@@ -5,6 +5,9 @@ from scipy.signal import butter, filtfilt, iirnotch, savgol_filter
 import matplotlib.pyplot as plt
 from wfdb import processing
 from mpl_toolkits.mplot3d import Axes3D
+import tkinter as tk
+from tkinter import ttk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # -------------------------------------------------------------------
 # 1.  Load 12-lead ECG  (change path to your PTB-XL file)
@@ -193,58 +196,99 @@ def segment_complexes(signal, r_locs, fs):
 
 
 # -------------------------------------------------------------------
-# 5.  Run denoising and segmentation
+# 5.  Main Application Logic and GUI
 # -------------------------------------------------------------------
+
+# 5.1 Run denoising and segmentation once
 denoised, meta = denoise_all_leads(x[:, :12], fs, lead_nms)
 print("Pipeline complete — 12 leads denoised.")
+print("Lead names available: " + ", ".join(lead_nms))
 
 # A dictionary to store the segmented complexes for each lead
 all_lead_complexes = {}
 for i, l in enumerate(lead_nms):
     denoised_lead = denoised[:, i]
-    # First, detect the R-peaks
     xqrs = processing.XQRS(sig=denoised_lead, fs=fs)
     xqrs.detect()
     r_locs = xqrs.qrs_inds
-
-    # Then segment the signal based on R-peaks
     complexes = segment_complexes(denoised_lead, r_locs, fs)
     all_lead_complexes[l] = complexes
     print(f"Segmented {len(complexes)} complexes for lead '{l}'.")
 
-# -------------------------------------------------------------------
-# 6.  3D visualization of all PQRST complexes
-# -------------------------------------------------------------------
-fig = plt.figure(figsize=(16, 12))
+# 5.2 Set up the GUI
+root = tk.Tk()
+root.title("ECG PQRST Complex Viewer")
+
+# Main frame for padding
+main_frame = ttk.Frame(root, padding="10")
+main_frame.pack(fill=tk.BOTH, expand=True)
+
+# UI elements frame
+control_frame = ttk.Frame(main_frame)
+control_frame.pack(side=tk.TOP, pady=5)
+
+# Label and Combobox for lead selection
+label = ttk.Label(control_frame, text="Select Lead:")
+label.pack(side=tk.LEFT, padx=5)
+
+lead_combo = ttk.Combobox(control_frame, values=lead_nms)
+lead_combo.pack(side=tk.LEFT, padx=5)
+lead_combo.set(lead_nms[0])  # Set initial selection to the first lead
+
+# Matplotlib figure for the plot
+fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(111, projection='3d')
+fig.set_tight_layout(True)
 
-# Time axis for a single complex
-complex_length = len(list(all_lead_complexes.values())[0][0])
-t_complex = np.arange(complex_length) / fs
+# Tkinter Canvas to display the matplotlib figure
+canvas = FigureCanvasTkAgg(fig, master=main_frame)
+canvas_widget = canvas.get_tk_widget()
+canvas_widget.pack(fill=tk.BOTH, expand=True)
 
-# Colors for each lead
-colors = plt.cm.viridis(np.linspace(0, 1, len(lead_nms)))
 
-# Plotting the complexes
-for i, lead_name in enumerate(lead_nms):
-    complexes_list = all_lead_complexes[lead_name]
-    # To keep the plot from being too cluttered, we'll plot a subset of complexes.
-    # The first 50 complexes are usually a good representation.
-    for j, complex_waveform in enumerate(complexes_list[:50]):
-        # The x-axis is time, y-axis is lead index, z-axis is amplitude
+# 5.3 Function to update the plot
+def update_plot(event=None):
+    """
+    Updates the 3D plot based on the selected lead from the combo box.
+    """
+    selected_lead = lead_combo.get()
+
+    # Clear the previous plot
+    ax.clear()
+
+    complexes = all_lead_complexes.get(selected_lead)
+
+    if not complexes:
+        ax.set_title(f"No complexes found for lead '{selected_lead}'")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Complex Index")
+        ax.set_zlabel("Amplitude")
+        canvas.draw()
+        return
+
+    complex_length = len(complexes[0])
+    t_complex = np.arange(complex_length) / fs
+
+    # Plotting the complexes
+    for i, complex_waveform in enumerate(complexes[:50]):
         ax.plot(t_complex, np.full_like(t_complex, i), complex_waveform,
-                color=colors[i], alpha=0.5, lw=1)
+                color='blue', alpha=0.8, lw=1.5)
 
-# Set labels and title
-ax.set_title("3D View of PQRST Complexes for All 12 Leads")
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Lead")
-ax.set_zlabel("Amplitude")
-ax.set_yticks(range(len(lead_nms)))
-ax.set_yticklabels(lead_nms)
+    # Set labels and title
+    ax.set_title(f"3D View of PQRST Complexes for Lead '{selected_lead}'")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Complex Index")
+    ax.set_zlabel("Amplitude")
 
-# Rotate the view for a better perspective
-ax.view_init(elev=20, azim=-60)
-plt.tight_layout()
-plt.show()
+    ax.view_init(elev=20, azim=-60)
+    canvas.draw()
 
+
+# Bind the update function to the combobox selection event
+lead_combo.bind("<<ComboboxSelected>>", update_plot)
+
+# Initial plot display
+update_plot()
+
+# Start the main GUI loop
+root.mainloop()
