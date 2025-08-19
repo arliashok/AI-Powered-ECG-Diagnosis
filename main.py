@@ -4,6 +4,7 @@ import pywt
 from scipy.signal import butter, filtfilt, iirnotch, savgol_filter
 import matplotlib.pyplot as plt
 from wfdb import processing
+from mpl_toolkits.mplot3d import Axes3D
 
 # -------------------------------------------------------------------
 # 1.  Load 12-lead ECG  (change path to your PTB-XL file)
@@ -151,50 +152,99 @@ def detect_pqrst(signal, fs):
 
 
 # -------------------------------------------------------------------
-# 4.  Run denoising and PQRST detection
+# 4. Helper: Segment the signal into PQRST complexes
 # -------------------------------------------------------------------
-# Denoise all leads
+def segment_complexes(signal, r_locs, fs):
+    """
+    Segments the signal into individual PQRST complexes around R-peaks.
+
+    Args:
+        signal (np.ndarray): The 1D ECG signal.
+        r_locs (np.ndarray): Array of R-peak indices.
+        fs (int): The sampling frequency.
+
+    Returns:
+        list: A list of numpy arrays, where each array is a PQRST complex segment.
+    """
+    complexes = []
+    # Define window size for a complex (e.g., 0.2s before R, 0.4s after)
+    pre_r_samples = int(0.2 * fs)
+    post_r_samples = int(0.4 * fs)
+
+    for r_idx in r_locs:
+        start = max(0, r_idx - pre_r_samples)
+        end = min(len(signal), r_idx + post_r_samples)
+
+        # Pad with zeros if the segment is shorter than expected
+        complex_segment = np.zeros(pre_r_samples + post_r_samples)
+        segment_data = signal[start:end]
+
+        # Center the segment at the R-peak
+        start_pad = pre_r_samples - (r_idx - start)
+        end_pad = (end - r_idx) - post_r_samples
+
+        if start_pad < 0: start_pad = 0
+        if end_pad > 0: end_pad = 0
+
+        complex_segment[start_pad: start_pad + len(segment_data)] = segment_data
+
+        complexes.append(complex_segment)
+    return complexes
+
+
+# -------------------------------------------------------------------
+# 5.  Run denoising and segmentation
+# -------------------------------------------------------------------
 denoised, meta = denoise_all_leads(x[:, :12], fs, lead_nms)
 print("Pipeline complete — 12 leads denoised.")
 
-# Select a single lead for PQRST analysis (e.g., Lead II, which is typically lead index 1)
-# or just the first lead
-lead_idx = 0
-denoised_lead = denoised[:, lead_idx]
-raw_lead = x[:, lead_idx]
-lead_name = lead_nms[lead_idx]
+# A dictionary to store the segmented complexes for each lead
+all_lead_complexes = {}
+for i, l in enumerate(lead_nms):
+    denoised_lead = denoised[:, i]
+    # First, detect the R-peaks
+    xqrs = processing.XQRS(sig=denoised_lead, fs=fs)
+    xqrs.detect()
+    r_locs = xqrs.qrs_inds
 
-# Detect PQRST on the denoised signal
-pqrst_results = detect_pqrst(denoised_lead, fs)
-print(f"PQRST complexes detected for lead '{lead_name}'.")
+    # Then segment the signal based on R-peaks
+    complexes = segment_complexes(denoised_lead, r_locs, fs)
+    all_lead_complexes[l] = complexes
+    print(f"Segmented {len(complexes)} complexes for lead '{l}'.")
 
 # -------------------------------------------------------------------
-# 5.  Quick visual check of the selected lead
+# 6.  3D visualization of all PQRST complexes
 # -------------------------------------------------------------------
-sec = 10  # Visualize first 10 seconds
-N = min(sec * fs, len(raw_lead))
-t = np.arange(N) / fs
+fig = plt.figure(figsize=(16, 12))
+ax = fig.add_subplot(111, projection='3d')
 
-plt.figure(figsize=(14, 8))
+# Time axis for a single complex
+complex_length = len(list(all_lead_complexes.values())[0][0])
+t_complex = np.arange(complex_length) / fs
 
-# Plot raw and denoised signal
-plt.plot(t, raw_lead[:N], color="gray", lw=.6, label="Raw")
-plt.plot(t, denoised_lead[:N], color="blue", lw=1.5, label="Denoised")
+# Colors for each lead
+colors = plt.cm.viridis(np.linspace(0, 1, len(lead_nms)))
 
-# Plot the detected P, Q, R, S, T points
-# We plot the points on the denoised signal's y-values
-plt.plot(t[pqrst_results['P']], denoised_lead[pqrst_results['P']], 'o', color='purple', markersize=6, label='P Peak')
-plt.plot(t[pqrst_results['Q']], denoised_lead[pqrst_results['Q']], 'o', color='green', markersize=6, label='Q Peak')
-plt.plot(t[pqrst_results['R']], denoised_lead[pqrst_results['R']], 'o', color='red', markersize=6, label='R Peak')
-plt.plot(t[pqrst_results['S']], denoised_lead[pqrst_results['S']], 'o', color='orange', markersize=6, label='S Peak')
-plt.plot(t[pqrst_results['T']], denoised_lead[pqrst_results['T']], 'o', color='cyan', markersize=6, label='T Peak')
+# Plotting the complexes
+for i, lead_name in enumerate(lead_nms):
+    complexes_list = all_lead_complexes[lead_name]
+    # To keep the plot from being too cluttered, we'll plot a subset of complexes.
+    # The first 50 complexes are usually a good representation.
+    for j, complex_waveform in enumerate(complexes_list[:50]):
+        # The x-axis is time, y-axis is lead index, z-axis is amplitude
+        ax.plot(t_complex, np.full_like(t_complex, i), complex_waveform,
+                color=colors[i], alpha=0.5, lw=1)
 
-# Final plot settings
-plt.title(f"ECG Signal for Lead '{lead_name}' — Denoised with PQRST Complexes")
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.legend()
-plt.grid(True)
+# Set labels and title
+ax.set_title("3D View of PQRST Complexes for All 12 Leads")
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Lead")
+ax.set_zlabel("Amplitude")
+ax.set_yticks(range(len(lead_nms)))
+ax.set_yticklabels(lead_nms)
+
+# Rotate the view for a better perspective
+ax.view_init(elev=20, azim=-60)
 plt.tight_layout()
 plt.show()
 
