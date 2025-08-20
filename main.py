@@ -218,12 +218,13 @@ for i, l in enumerate(lead_nms):
 # 5.2 Set up the GUI
 root = tk.Tk()
 root.title("ECG PQRST Complex Viewer")
+root.geometry("1400x800")  # Set a larger default window size
 
 # Main frame for padding
 main_frame = ttk.Frame(root, padding="10")
 main_frame.pack(fill=tk.BOTH, expand=True)
 
-# UI elements frame
+# UI elements frame (dropdown menu)
 control_frame = ttk.Frame(main_frame)
 control_frame.pack(side=tk.TOP, pady=5)
 
@@ -235,53 +236,121 @@ lead_combo = ttk.Combobox(control_frame, values=lead_nms)
 lead_combo.pack(side=tk.LEFT, padx=5)
 lead_combo.set(lead_nms[0])  # Set initial selection to the first lead
 
-# Matplotlib figure for the plot
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
-fig.set_tight_layout(True)
+# PanedWindow to divide the screen into two vertical panes
+paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+paned_window.pack(fill=tk.BOTH, expand=True)
 
-# Tkinter Canvas to display the matplotlib figure
-canvas = FigureCanvasTkAgg(fig, master=main_frame)
-canvas_widget = canvas.get_tk_widget()
-canvas_widget.pack(fill=tk.BOTH, expand=True)
+# Left pane for 2D plots
+left_pane = ttk.Frame(paned_window, width=700)
+paned_window.add(left_pane, weight=1)
+
+# Right pane for 3D plot
+right_pane = ttk.Frame(paned_window, width=700)
+paned_window.add(right_pane, weight=1)
+
+# Matplotlib figures for the plots
+fig_raw_denoised = plt.figure(figsize=(10, 5))
+ax1 = fig_raw_denoised.add_subplot(111)
+fig_raw_denoised.set_tight_layout(True)
+
+fig_denoised_pqrst = plt.figure(figsize=(10, 5))
+ax2 = fig_denoised_pqrst.add_subplot(111)
+fig_denoised_pqrst.set_tight_layout(True)
+
+fig_3d = plt.figure(figsize=(10, 10))
+ax3 = fig_3d.add_subplot(111, projection='3d')
+fig_3d.set_tight_layout(True)
+
+# Tkinter Canvases to display the matplotlib figures
+canvas1 = FigureCanvasTkAgg(fig_raw_denoised, master=left_pane)
+canvas_widget1 = canvas1.get_tk_widget()
+canvas_widget1.pack(fill=tk.BOTH, expand=True)
+
+canvas2 = FigureCanvasTkAgg(fig_denoised_pqrst, master=left_pane)
+canvas_widget2 = canvas2.get_tk_widget()
+canvas_widget2.pack(fill=tk.BOTH, expand=True)
+
+canvas3 = FigureCanvasTkAgg(fig_3d, master=right_pane)
+canvas_widget3 = canvas3.get_tk_widget()
+canvas_widget3.pack(fill=tk.BOTH, expand=True)
 
 
-# 5.3 Function to update the plot
+# 5.3 Function to update all plots
 def update_plot(event=None):
     """
-    Updates the 3D plot based on the selected lead from the combo box.
+    Updates all three plots based on the selected lead from the combo box.
     """
     selected_lead = lead_combo.get()
+    lead_idx = lead_nms.index(selected_lead)
 
-    # Clear the previous plot
-    ax.clear()
+    # 10-second data
+    sec = 10
+    N = min(sec * fs, len(x))
+    t = np.arange(N) / fs
 
-    complexes = all_lead_complexes.get(selected_lead)
+    raw_lead = x[:N, lead_idx]
+    denoised_lead_10s = denoised[:N, lead_idx]
 
+    # PQRST complex data
+    complexes = all_lead_complexes.get(selected_lead, [])
+    pqrst_results = detect_pqrst(denoised[:, lead_idx], fs)
+
+    # Clear all axes
+    ax1.clear()
+    ax2.clear()
+    ax3.clear()
+
+    # Plot 1: Raw vs Denoised
+    ax1.plot(t, raw_lead, color="gray", lw=.6, label="Raw")
+    ax1.plot(t, denoised_lead_10s, color="blue", lw=1.5, label="Denoised")
+    ax1.set_title(f"Lead '{selected_lead}' — Raw vs Denoised (10s)")
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("Amplitude")
+    ax1.legend()
+    ax1.grid(True)
+    canvas1.draw()
+
+    # Plot 2: Denoised with PQRST labels
+    ax2.plot(t, denoised_lead_10s, color="blue", lw=1.5)
+    ax2.plot(t[pqrst_results['P']], denoised_lead_10s[pqrst_results['P']], 'o', color='purple', markersize=4,
+             label='P Peak')
+    ax2.plot(t[pqrst_results['Q']], denoised_lead_10s[pqrst_results['Q']], 'o', color='green', markersize=4,
+             label='Q Peak')
+    ax2.plot(t[pqrst_results['R']], denoised_lead_10s[pqrst_results['R']], 'o', color='red', markersize=4,
+             label='R Peak')
+    ax2.plot(t[pqrst_results['S']], denoised_lead_10s[pqrst_results['S']], 'o', color='orange', markersize=4,
+             label='S Peak')
+    ax2.plot(t[pqrst_results['T']], denoised_lead_10s[pqrst_results['T']], 'o', color='cyan', markersize=4,
+             label='T Peak')
+    ax2.set_title(f"Lead '{selected_lead}' — Denoised with PQRST Complexes")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Amplitude")
+    ax2.legend()
+    ax2.grid(True)
+    canvas2.draw()
+
+    # Plot 3: 3D view of segmented complexes
     if not complexes:
-        ax.set_title(f"No complexes found for lead '{selected_lead}'")
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Complex Index")
-        ax.set_zlabel("Amplitude")
-        canvas.draw()
+        ax3.set_title(f"No complexes found for lead '{selected_lead}'")
+        ax3.set_xlabel("Time (s)")
+        ax3.set_ylabel("Complex Index")
+        ax3.set_zlabel("Amplitude")
+        canvas3.draw()
         return
 
     complex_length = len(complexes[0])
     t_complex = np.arange(complex_length) / fs
 
-    # Plotting the complexes
     for i, complex_waveform in enumerate(complexes[:50]):
-        ax.plot(t_complex, np.full_like(t_complex, i), complex_waveform,
-                color='blue', alpha=0.8, lw=1.5)
+        ax3.plot(t_complex, np.full_like(t_complex, i), complex_waveform,
+                 color='blue', alpha=0.8, lw=1.5)
 
-    # Set labels and title
-    ax.set_title(f"3D View of PQRST Complexes for Lead '{selected_lead}'")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Complex Index")
-    ax.set_zlabel("Amplitude")
-
-    ax.view_init(elev=20, azim=-60)
-    canvas.draw()
+    ax3.set_title(f"3D View of PQRST Complexes for Lead '{selected_lead}'")
+    ax3.set_xlabel("Time (s)")
+    ax3.set_ylabel("Complex Index")
+    ax3.set_zlabel("Amplitude")
+    ax3.view_init(elev=20, azim=-60)
+    canvas3.draw()
 
 
 # Bind the update function to the combobox selection event
