@@ -58,7 +58,7 @@ else:
 # Load trained model
 # -------------------
 model = tf.keras.models.load_model(model_path)
-print("Model loaded successfully!")
+print("✅ Model loaded successfully!")
 
 # -------------------
 # MultiLabel Binarizer (fit on all labels)
@@ -86,9 +86,9 @@ def predict_ecg(record_name):
     x_sample = preprocess_ecg(record_name)
 
     # Find ground truth labels (if available in ptbxl_database.csv)
-    row = Y[Y.filename_lr == record_name]  # match low-res filename
+    row = Y[Y.filename_lr == record_name]
     if row.empty:
-        row = Y[Y.filename_hr == record_name]  # fallback high-res
+        row = Y[Y.filename_hr == record_name]
     if not row.empty:
         y_true = row.iloc[0].diagnostic_superclass
     else:
@@ -97,16 +97,40 @@ def predict_ecg(record_name):
     y_pred = model.predict(x_sample)
     pred_labels = mlb.inverse_transform((y_pred > 0.5).astype(int))
 
-    print("\nTesting record:", record_name)
+    print("\n🔎 Testing record:", record_name)
     if y_true is not None:
         print("Ground Truth Labels:", y_true)
     print("Predicted Labels    :", pred_labels)
 
+# -------------------
+# Evaluate Model on Test Set
+# -------------------
+def evaluate_model():
+    print("\n📊 Evaluating model on full test set...")
+    # Load saved test set
+    x_test = np.load("D:\\ECG\\x_test.npy", allow_pickle=True)
+    y_test = np.load("D:\\ECG\\y_test.npy", allow_pickle=True)
+
+    # Reshape
+    x_test = x_test.transpose(0, 2, 1)
+    x_test = x_test.reshape(x_test.shape[0], no_of_leads, 1000, 1)
+
+    # Binarize labels
+    if classification_name != "binary":
+        y_test = mlb.transform(y_test)
+
+    # Evaluate
+    scores = model.evaluate(x_test, y_test, verbose=0)
+    print(f"✅ Test Binary Accuracy : {scores[1]:.4f}")
+    print(f"✅ Test ROC-AUC Score   : {scores[2]:.4f}")
 
 # -------------------
 # Example Usage
 # -------------------
 if __name__ == "__main__":
-    # Example: pass a filename directly
+    # Predict for a single file
     test_file = "records100/00000/00814_lr"   # << change this to your file name
     predict_ecg(test_file)
+
+    # Evaluate full test set
+    evaluate_model()
