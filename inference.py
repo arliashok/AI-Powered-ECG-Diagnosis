@@ -15,7 +15,6 @@ from sklearn.preprocessing import MultiLabelBinarizer
 ptbxl_path = "D:\\ECG\\ptb-xl-1.0.3\\"   # Path to PTB-XL dataset
 model_path = "D:\\ECG\\models\\First_Paper.h5"
 
-sampling_rate = 100
 classification_name = "subclasses"   # {"binary","superclasses","subclasses"}
 lead_type = {"lead-I": 1, "bipolar-limb": 3, "unipolar-limb": 3,
              "limb-leads": 6, "precordial-leads": 6, "all-lead": 12}
@@ -26,7 +25,7 @@ calssificatin_type = {"binary": 1, "superclasses": 5, "subclasses": 23}
 no_of_classes = calssificatin_type[classification_name]
 
 # -------------------
-# Load metadata
+# Load metadata & labels
 # -------------------
 Y = pd.read_csv(ptbxl_path + 'ptbxl_database.csv', index_col='ecg_id')
 Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
@@ -62,7 +61,7 @@ model = tf.keras.models.load_model(model_path)
 print("Model loaded successfully!")
 
 # -------------------
-# MultiLabel Binarizer (fit on training labels)
+# MultiLabel Binarizer (fit on all labels)
 # -------------------
 all_labels = Y.diagnostic_superclass.tolist()
 mlb = MultiLabelBinarizer()
@@ -72,36 +71,42 @@ mlb.fit(all_labels)
 # Function to preprocess ECG record
 # -------------------
 def preprocess_ecg(record_name):
-    # Load ECG record
+    """Load and preprocess ECG record for model input."""
     signal, meta = wfdb.rdsamp(ptbxl_path + record_name)
-
-    # Use all 12 leads (or subset)
     ecg = signal  # shape (1000, 12)
-
-    # Transpose & reshape for CNN
     ecg = ecg.transpose(1, 0)   # (12, 1000)
-    ecg = ecg.reshape(1, no_of_leads, 1000, 1)  # (1, 12, 1000, 1)
-
+    ecg = ecg.reshape(1, no_of_leads, 1000, 1)
     return ecg
 
 # -------------------
-# Pick a test ECG from dataset
+# Prediction Function
 # -------------------
-# Example: take the first test sample
-test_fold = 10
-test_idx = Y[Y.strat_fold == test_fold].index[0]
-record_name = Y.loc[test_idx].filename_lr  # filename_hr if sampling_rate=500
+def predict_ecg(record_name):
+    """Run prediction for a given ECG filename (relative to ptbxl_path)."""
+    x_sample = preprocess_ecg(record_name)
 
-print("Testing on record:", record_name)
+    # Find ground truth labels (if available in ptbxl_database.csv)
+    row = Y[Y.filename_lr == record_name]  # match low-res filename
+    if row.empty:
+        row = Y[Y.filename_hr == record_name]  # fallback high-res
+    if not row.empty:
+        y_true = row.iloc[0].diagnostic_superclass
+    else:
+        y_true = None
+
+    y_pred = model.predict(x_sample)
+    pred_labels = mlb.inverse_transform((y_pred > 0.5).astype(int))
+
+    print("\nTesting record:", record_name)
+    if y_true is not None:
+        print("Ground Truth Labels:", y_true)
+    print("Predicted Labels    :", pred_labels)
+
 
 # -------------------
-# Preprocess and Predict
+# Example Usage
 # -------------------
-x_sample = preprocess_ecg(record_name)
-y_true = Y.loc[test_idx].diagnostic_superclass
-
-y_pred = model.predict(x_sample)
-pred_labels = mlb.inverse_transform((y_pred > 0.5).astype(int))
-
-print("\nGround Truth Labels:", y_true)
-print("Predicted Labels    :", pred_labels)
+if __name__ == "__main__":
+    # Example: pass a filename directly
+    test_file = "records100/00000/00814_lr"   # << change this to your file name
+    predict_ecg(test_file)
