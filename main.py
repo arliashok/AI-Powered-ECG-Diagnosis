@@ -14,7 +14,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # -------------------------------------------------------------------
 # This path is relative to the dataset's root. Make sure you have the dataset
 # downloaded and the path is correct.
-rec_path = ("ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1/"
+rec_path = ("ptb-xl-1.0.3/"
             "records500/00000/00001_hr")
 rec = wfdb.rdrecord(rec_path)  # WFDB object
 x = rec.p_signal  # (samples, 12/15)

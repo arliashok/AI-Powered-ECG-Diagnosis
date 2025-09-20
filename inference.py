@@ -12,8 +12,8 @@ from sklearn.preprocessing import MultiLabelBinarizer
 # -------------------
 # CONFIG
 # -------------------
-ptbxl_path = "D:\\ECG\\ptb-xl-1.0.3\\"   # Path to PTB-XL dataset
-model_path = "D:\\ECG\\models\\First_Paper.h5"
+ptbxl_path = "ptb-xl-1.0.3\\"   # Path to PTB-XL dataset
+model_path = "models\\First_Paper.h5"
 
 classification_name = "subclasses"   # {"binary","superclasses","subclasses"}
 lead_type = {"lead-I": 1, "bipolar-limb": 3, "unipolar-limb": 3,
@@ -108,8 +108,8 @@ def predict_ecg(record_name):
 def evaluate_model():
     print("\n📊 Evaluating model on full test set...")
     # Load saved test set
-    x_test = np.load("D:\\ECG\\x_test.npy", allow_pickle=True)
-    y_test = np.load("D:\\ECG\\y_test.npy", allow_pickle=True)
+    x_test = np.load("x_test.npy", allow_pickle=True)
+    y_test = np.load("y_test.npy", allow_pickle=True)
 
     # Reshape
     x_test = x_test.transpose(0, 2, 1)
@@ -129,7 +129,7 @@ def evaluate_model():
 # -------------------
 if __name__ == "__main__":
     # Predict for a single file
-    test_file = "records100/00000/00814_lr"   # << change this to your file name
+    test_file = "records100/00000/00001_lr"   # << change this to your file name
     predict_ecg(test_file)
 
     # Evaluate full test set
